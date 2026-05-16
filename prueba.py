@@ -3,45 +3,46 @@ import pandas as pd
 import numpy as np
 from tkinter import Tk, filedialog 
 
-# Importaciones de tus módulos actuales
+# --- TUS MÓDULOS DE PREPROCESAMIENTO ---
+from script_mod import cargar_archivo
 from sustraccion_fondo import sustraccion_fondo
 from deteccion_maximos import deteccion_maximos
-from visualizador import visualizador
-from script_mod import cargar_archivo
 
-# ---> NUEVAS IMPORTACIONES <---
+# --- NUESTROS NUEVOS MÓDULOS (FÍSICA Y CRUCE) ---
 from ajuste import calcular_FWHM_exacto
 from scherrer import aplicar_scherrer
+from search import asignar_indices_miller
+from visualizador import visualizador_search_match # El visualizador indexado
 
 if __name__ == "__main__":
-    print("Iniciando sistema de análisis DRX...")
+    print("Iniciando sistema de análisis DRX - Sprint 1...")
     
-    # 1. Se abre la ventana para que el usuario elija el .txt
+    # =========================================================
+    # FASE 1 y 2: DATOS EXPERIMENTALES Y LIMPIEZA
+    # =========================================================
+    print("\n[1/5] Seleccione el difractograma experimental...")
     df_experimental = cargar_archivo()
     
-    # Verificación de seguridad: solo avanza si el usuario seleccionó un archivo
     if df_experimental is not None:
         
-        # 2. Ajuste de Línea Base
-        print("Limpiando señal y sustrayendo fondo amorfo...")
+        print("[2/5] Limpiando señal y sustrayendo fondo amorfo...")
         df_limpio = sustraccion_fondo(df_experimental, grado_base=2)
         
-        # 3. Detección de Máximos
-        print("Extrayendo picos característicos...")
-        maximos_df = deteccion_maximos(df_limpio, pct_altura=0.1, pct_prominencia=0.11)
-        print(f"Se encontraron {len(maximos_df)} picos en la muestra.")
+        print("      Extrayendo picos característicos...")
+        maximos_df = deteccion_maximos(df_limpio, pct_altura=0.02, pct_prominencia=0.03)
+        print(f"      -> Se encontraron {len(maximos_df)} picos en la muestra.")
 
         # =========================================================
-        # NUEVA FASE: ANÁLISIS FÍSICO (FWHM y Ecuación de Scherrer)
+        # FASE 3: ANÁLISIS FÍSICO (FWHM y SCHERRER)
         # =========================================================
-        print("Calculando FWHM mediante ajuste de perfiles Lorentzianos...")
+        print("\n[3/5] Calculando FWHM mediante ajuste de perfiles Lorentzianos...")
         resultados_analisis = []
         
-        # Extraemos los datos como arreglos de NumPy (Ajusta 'Iobs' al nombre de tu columna limpia)
+        # Extraemos las columnas limpias como vectores
         angulos = df_limpio['2Theta'].values
         intensidades_limpias = df_limpio['Iobs'].values 
         
-        # Iteramos sobre los centros encontrados por tu Función 3
+        # Iteramos solo sobre los máximos encontrados
         for centro in maximos_df['2Theta']:
             fwhm, parametros = calcular_FWHM_exacto(angulos, intensidades_limpias, centro_detectado=centro)
             if fwhm is not None:
@@ -50,26 +51,48 @@ if __name__ == "__main__":
                     'FWHM_grados': fwhm
                 })
         
-        # Convertimos la lista de resultados a un DataFrame de Pandas
         df_resultados = pd.DataFrame(resultados_analisis)
         
-        # Aplicamos la matemática vectorizada de Scherrer a todos los picos
-        print("Aplicando ecuación de Scherrer...")
-        df_resultados = aplicar_scherrer(df_resultados)
-        
-        # Mostramos la tabla final en consola
-        print("\n--- TABLA DE RESULTADOS FÍSICOS ---")
-        print(df_resultados)
-        print("-----------------------------------\n")
-        # =========================================================
+        print("      Aplicando ecuación de Scherrer (Ánodo Cu, K=0.9)...")
+        df_resultados = aplicar_scherrer(df_resultados, longitud_onda=0.15406, K=0.9)
 
-        # 4. Visualización Final
-        print("Generando gráfico del difractograma...")
-        # Llama a la función gráfica pasándole la curva original, la limpia y los puntos de los picos
-        visualizador(df_limpio, maximos_df)
+        # =========================================================
+        # FASE 4: SEARCH-MATCH (INDEXACIÓN)
+        # =========================================================
+        print("\n[4/5] Seleccione el archivo teórico 'Referencia.txt'...")
         
-        print("Análisis experimental completado.")
+        # Abrimos un selector de archivos específicamente para la referencia
+        root = Tk()
+        root.withdraw() 
+        ruta_ref = filedialog.askopenfilename(
+            title="Selecciona el archivo de Referencia",
+            filetypes=[("Archivos de texto", "*.txt"), ("Todos los archivos", "*.*")]
+        )
         
+        if ruta_ref:
+            # Cargamos la base de datos teórica
+            df_referencia = pd.read_csv(ruta_ref, sep=r'\s+', engine='python', decimal='.')
+            
+            print("      Cruzando datos experimentales con base teórica...")
+            df_resultados = asignar_indices_miller(df_resultados, df_referencia, tolerancia=0.3)
+            
+            # Imprimimos el reporte final de forma elegante en la consola
+            print("\n========================================================")
+            print("            REPORTE CRISTALOGRÁFICO FINAL               ")
+            print("========================================================")
+            print(df_resultados.to_string(index=False))
+            print("========================================================\n")
+
+            # =========================================================
+            # FASE 5: VISUALIZACIÓN
+            # =========================================================
+            print("[5/5] Generando difractograma indexado...")
+            visualizador_search_match(df_experimental, df_resultados)
+            
+            print("\n¡Análisis completado con éxito!")
+            
+        else:
+            print("\n[!] Operación cancelada: No se seleccionó archivo de referencia.")
+            
     else:
-        # Cerramos el if que dejaste abierto
-        print("Operación cancelada: No se seleccionó ningún archivo.")
+        print("\n[!] Operación cancelada: No se seleccionó archivo experimental.")
