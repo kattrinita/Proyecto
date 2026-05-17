@@ -1,5 +1,7 @@
 import numpy as np
-from scipy.optimize import curve_fit
+import pandas as pd
+
+from analizador_drx import CalcularFWHM
 
 
 def ecuacion_lorentziana(x, amplitud, centro, gamma):
@@ -8,37 +10,10 @@ def ecuacion_lorentziana(x, amplitud, centro, gamma):
 
 
 def calcular_FWHM_exacto(angulos, intensidades, centro_detectado, ventana_grados=0.4):
-    
-  
-    mascara = (angulos >= centro_detectado - ventana_grados) & (angulos <= centro_detectado + ventana_grados)
-    x_pico = angulos[mascara]
-    y_pico = intensidades[mascara]
-    
-    
-    if len(x_pico) < 5:
+    df = pd.DataFrame({"2Theta": angulos, "Iobs_Limpia": intensidades})
+    df_pico = pd.DataFrame({"Angulo_2Theta": [centro_detectado]})
+    resultado = CalcularFWHM(df, df_pico, ventana_grados=ventana_grados)
+    if resultado.empty:
+        print(f"No se pudo medir FWHM del pico en {centro_detectado}°")
         return None, None
-        
-    amplitud_estimada = np.max(y_pico) * np.pi * 0.1 
-    gamma_estimado = 0.1 
-    estimaciones_iniciales = [amplitud_estimada, centro_detectado, gamma_estimado]
-    
-    try:
-       
-        parametros_optimos, _ = curve_fit(
-            f=ecuacion_lorentziana, 
-            xdata=x_pico, 
-            ydata=y_pico, 
-            p0=estimaciones_iniciales
-        )
-        
-       
-        gamma_optimo = parametros_optimos[2]
-        fwhm_calculado = 2 * abs(gamma_optimo)
-        
-       
-        return fwhm_calculado, parametros_optimos
-        
-    except RuntimeError:
-        
-        print(f"No se pudo ajustar matemáticamente el pico en {centro_detectado}°")
-        return None, None
+    return float(resultado.iloc[0]["FWHM_grados"]), None
